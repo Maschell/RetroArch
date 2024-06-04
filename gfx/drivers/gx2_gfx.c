@@ -23,8 +23,6 @@
 #include <formats/image.h>
 #include <file/file_path.h>
 #include <string/stdstring.h>
-#include <proc_ui/procui.h>
-#include <coreinit/debug.h>
 
 #include "../../driver.h"
 #include "../../configuration.h"
@@ -89,7 +87,10 @@ static void gx2_free_shader_preset(wiiu_video_t *wiiu)
       MEM2_free(wiiu->pass[i].vs_ubos[1]);
       MEM2_free(wiiu->pass[i].ps_ubos[0]);
       MEM2_free(wiiu->pass[i].ps_ubos[1]);
-      MEM2_free(wiiu->pass[i].texture.surface.image);
+      if (wiiu->pass[i].mem1)
+         MEM1_free(wiiu->pass[i].texture.surface.image);
+      else
+         MEM2_free(wiiu->pass[i].texture.surface.image);
    }
 
    memset(wiiu->pass, 0, sizeof(wiiu->pass));
@@ -546,7 +547,7 @@ static void* gx2_font_init(void* data, const char* font_path,
 
    GX2CalcSurfaceSizeAndAlignment(&font->texture.surface);
    GX2InitTextureRegs(&font->texture);
-   font->texture.surface.image       = MEM2_alloc(
+   font->texture.surface.image       = MEM1_alloc(
          font->texture.surface.imageSize,
          font->texture.surface.alignment);
 
@@ -561,7 +562,7 @@ static void* gx2_font_init(void* data, const char* font_path,
          font->texture.surface.imageSize);
 
    font->atlas->dirty    = false;
-   font->ubo_tex         = MEM2_alloc(sizeof(*font->ubo_tex), GX2_UNIFORM_BLOCK_ALIGNMENT);
+   font->ubo_tex         = MEM1_alloc(sizeof(*font->ubo_tex), GX2_UNIFORM_BLOCK_ALIGNMENT);
    font->ubo_tex->width  = font->texture.surface.width;
    font->ubo_tex->height = font->texture.surface.height;
    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_UNIFORM_BLOCK, font->ubo_tex,
@@ -581,9 +582,9 @@ static void gx2_font_free(void* data, bool is_threaded)
       font->font_driver->free(font->font_data);
 
    if (font->texture.surface.image)
-      MEM2_free(font->texture.surface.image);
+      MEM1_free(font->texture.surface.image);
    if (font->ubo_tex)
-      MEM2_free(font->ubo_tex);
+      MEM1_free(font->ubo_tex);
    free(font);
 }
 
@@ -1007,84 +1008,12 @@ static void gx2_set_aspect_ratio(void *data, unsigned aspect_ratio_idx)
 
 static uint32_t gx2_get_flags(void *data);
 
-static uint32_t
-GfxProcCallbackAcquired(void *context)
-{
-   wiiu_video_t *wiiu = (wiiu_video_t *) context;
-
-   wiiu->has_foreground = TRUE;
-
-   if (!memoryInitializeMEM1()) {
-      return -1;
-   }
-   if (!memoryInitializeBucket()) {
-      return -1;
-   }
-
-   wiiu->tv_scan_buffer = MEMBucket_alloc(wiiu->tv_scan_buffer_size, GX2_SCAN_BUFFER_ALIGNMENT);
-   if (!wiiu->tv_scan_buffer) {
-      return -1;
-   }
-   GX2Invalidate(GX2_INVALIDATE_MODE_CPU, wiiu->tv_scan_buffer, wiiu->tv_scan_buffer_size);
-   GX2SetTVBuffer(wiiu->tv_scan_buffer, wiiu->tv_scan_buffer_size, wiiu->render_mode.mode,
-                  GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8,
-                  GX2_BUFFERING_MODE_DOUBLE);
-
-   wiiu->color_buffer.surface.image = MEM1_alloc(
-           wiiu->color_buffer.surface.imageSize,
-           wiiu->color_buffer.surface.alignment);
-
-   if (!wiiu->color_buffer.surface.image) {
-      return -1;
-   }
-
-   GX2Invalidate(GX2_INVALIDATE_MODE_CPU, wiiu->color_buffer.surface.image,
-                 wiiu->color_buffer.surface.imageSize);
-
-   wiiu->drc_scan_buffer = MEMBucket_alloc(wiiu->drc_scan_buffer_size, GX2_SCAN_BUFFER_ALIGNMENT);
-   if (!wiiu->drc_scan_buffer) {
-      return -1;
-   }
-   GX2Invalidate(GX2_INVALIDATE_MODE_CPU, wiiu->drc_scan_buffer, wiiu->drc_scan_buffer_size);
-   GX2SetDRCBuffer(wiiu->drc_scan_buffer, wiiu->drc_scan_buffer_size, GX2_DRC_RENDER_MODE_SINGLE,
-                   GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8,
-                   GX2_BUFFERING_MODE_DOUBLE);
-   return 0;
-}
-
-static uint32_t
-GfxProcCallbackReleased(void *context)
-{
-   wiiu_video_t *wiiu = (wiiu_video_t *) context;
-
-   GX2DrawDone();
-
-   if (wiiu->tv_scan_buffer) {
-      MEMBucket_free(wiiu->tv_scan_buffer);
-      wiiu->tv_scan_buffer = NULL;
-   }
-
-   if (wiiu->color_buffer.surface.image) {
-      MEM1_free(wiiu->color_buffer.surface.image);
-      wiiu->color_buffer.surface.image = NULL;
-   }
-
-   if (wiiu->drc_scan_buffer) {
-      MEMBucket_free(wiiu->drc_scan_buffer);
-      wiiu->drc_scan_buffer = NULL;
-   }
-
-   destroyMEM1Heap();
-   destroyBucketHeap();
-   wiiu->has_foreground = FALSE;
-   return 0;
-}
-
 static void *gx2_init(const video_info_t *video,
       input_driver_t **input, void **input_data)
 {
    unsigned i;
    float refresh_rate              = 60.0f / 1.001f;
+   uint32_t size                   = 0;
    uint32_t tmp                    = 0;
    void *wiiuinput                 = NULL;
    wiiu_video_t *wiiu              = (wiiu_video_t*)calloc(1, sizeof(*wiiu));
@@ -1121,13 +1050,24 @@ static void *gx2_init(const video_info_t *video,
 
    /* setup scanbuffers */
    wiiu->render_mode               = gx2_render_mode_map[GX2GetSystemTVScanMode()];
-
    GX2CalcTVSize(wiiu->render_mode.mode, GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8,
-               GX2_BUFFERING_MODE_DOUBLE, &wiiu->tv_scan_buffer_size,
-               &tmp);
+                 GX2_BUFFERING_MODE_DOUBLE, &size, &tmp);
+
+   wiiu->tv_scan_buffer            = MEMBucket_alloc(size, GX2_SCAN_BUFFER_ALIGNMENT);
+   GX2Invalidate(GX2_INVALIDATE_MODE_CPU, wiiu->tv_scan_buffer, size);
+   GX2SetTVBuffer(wiiu->tv_scan_buffer, size, wiiu->render_mode.mode,
+                  GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8,
+                  GX2_BUFFERING_MODE_DOUBLE);
+
    GX2CalcDRCSize(GX2_DRC_RENDER_MODE_SINGLE, GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8,
-                GX2_BUFFERING_MODE_DOUBLE, &wiiu->drc_scan_buffer_size,
-                &tmp);
+                  GX2_BUFFERING_MODE_DOUBLE, &size,
+                  &tmp);
+
+   wiiu->drc_scan_buffer           = MEMBucket_alloc(size, GX2_SCAN_BUFFER_ALIGNMENT);
+   GX2Invalidate(GX2_INVALIDATE_MODE_CPU, wiiu->drc_scan_buffer, size);
+   GX2SetDRCBuffer(wiiu->drc_scan_buffer, size, GX2_DRC_RENDER_MODE_SINGLE,
+                   GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8,
+                   GX2_BUFFERING_MODE_DOUBLE);
 
    memset(&wiiu->color_buffer, 0, sizeof(GX2ColorBuffer));
 
@@ -1151,13 +1091,11 @@ static void *gx2_init(const video_info_t *video,
    GX2CalcSurfaceSizeAndAlignment(&wiiu->color_buffer.surface);
    GX2InitColorBufferRegs(&wiiu->color_buffer);
 
-   if (GfxProcCallbackAcquired(wiiu) != 0) {
-      printf("GfxProcCallbackAcquired failed\n");
-      return NULL;
-   }
-
-   ProcUIRegisterCallback(PROCUI_CALLBACK_ACQUIRE, GfxProcCallbackAcquired, wiiu, 100);
-   ProcUIRegisterCallback(PROCUI_CALLBACK_RELEASE, GfxProcCallbackReleased, wiiu, 100);
+   wiiu->color_buffer.surface.image     = MEM1_alloc(
+         wiiu->color_buffer.surface.imageSize,
+         wiiu->color_buffer.surface.alignment);
+   GX2Invalidate(GX2_INVALIDATE_MODE_CPU, wiiu->color_buffer.surface.image,
+                 wiiu->color_buffer.surface.imageSize);
 
    wiiu->ctx_state                      = (GX2ContextState *)MEM2_alloc(
          sizeof(GX2ContextState), GX2_CONTEXT_STATE_ALIGNMENT);
@@ -1188,25 +1126,25 @@ static void *gx2_init(const video_info_t *video,
 
    GX2SetShader(&frame_shader);
 
-   wiiu->ubo_vp                       = MEM2_alloc(sizeof(*wiiu->ubo_vp), GX2_UNIFORM_BLOCK_ALIGNMENT);
+   wiiu->ubo_vp                       = MEM1_alloc(sizeof(*wiiu->ubo_vp), GX2_UNIFORM_BLOCK_ALIGNMENT);
    wiiu->ubo_vp->width                = wiiu->color_buffer.surface.width;
    wiiu->ubo_vp->height               = wiiu->color_buffer.surface.height;
    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_UNIFORM_BLOCK, wiiu->ubo_vp, sizeof(*wiiu->ubo_vp));
 
-   wiiu->ubo_tex                      = MEM2_alloc(sizeof(*wiiu->ubo_tex), GX2_UNIFORM_BLOCK_ALIGNMENT);
+   wiiu->ubo_tex                      = MEM1_alloc(sizeof(*wiiu->ubo_tex), GX2_UNIFORM_BLOCK_ALIGNMENT);
    wiiu->ubo_tex->width               = 1.0;
    wiiu->ubo_tex->height              = 1.0;
    GX2Invalidate(GX2_INVALIDATE_MODE_CPU_UNIFORM_BLOCK, wiiu->ubo_tex, sizeof(*wiiu->ubo_tex));
 
-   wiiu->ubo_mvp                      = MEM2_alloc(sizeof(*wiiu->ubo_mvp), GX2_UNIFORM_BLOCK_ALIGNMENT);
+   wiiu->ubo_mvp                      = MEM1_alloc(sizeof(*wiiu->ubo_mvp), GX2_UNIFORM_BLOCK_ALIGNMENT);
    gx2_set_projection(wiiu);
 
    wiiu->input_ring_buffer_size       = GX2CalcGeometryShaderInputRingBufferSize(
                                      sprite_shader.vs.ringItemSize);
    wiiu->output_ring_buffer_size      = GX2CalcGeometryShaderOutputRingBufferSize(
                                       sprite_shader.gs.ringItemSize);
-   wiiu->input_ring_buffer            = MEM2_alloc(wiiu->input_ring_buffer_size, 0x1000);
-   wiiu->output_ring_buffer           = MEM2_alloc(wiiu->output_ring_buffer_size, 0x1000);
+   wiiu->input_ring_buffer            = MEM1_alloc(wiiu->input_ring_buffer_size, 0x1000);
+   wiiu->output_ring_buffer           = MEM1_alloc(wiiu->output_ring_buffer_size, 0x1000);
 
    /* init menu texture */
    memset(&wiiu->menu.texture, 0, sizeof(GX2Texture));
@@ -1555,13 +1493,19 @@ static void gx2_free(void *data)
    if (!wiiu)
       return;
 
-   if (wiiu->has_foreground) {
-      GfxProcCallbackReleased(wiiu);
-   }
+   /* clear leftover image */
+   GX2ClearColor(&wiiu->color_buffer, 0.0f, 0.0f, 0.0f, 1.0f);
+   GX2CopyColorBufferToScanBuffer(&wiiu->color_buffer, GX2_SCAN_TARGET_DRC);
+   GX2CopyColorBufferToScanBuffer(&wiiu->color_buffer, GX2_SCAN_TARGET_TV);
 
-   ProcUIClearCallbacks();
-
+   GX2SwapScanBuffers();
+   GX2Flush();
+   GX2DrawDone();
+   GX2WaitForVsync();
    GX2Shutdown();
+
+   GX2SetTVEnable(GX2_DISABLE);
+   GX2SetDRCEnable(GX2_DISABLE);
 
    GX2DestroyShader(&frame_shader);
    GX2DestroyShader(&tex_shader);
@@ -1591,11 +1535,15 @@ static void gx2_free(void *data)
    MEM2_free(wiiu->menu_shader_vbo);
    MEM2_free(wiiu->menu_shader_ubo);
 
-   MEM2_free(wiiu->ubo_vp);
-   MEM2_free(wiiu->ubo_tex);
-   MEM2_free(wiiu->ubo_mvp);
-   MEM2_free(wiiu->input_ring_buffer);
-   MEM2_free(wiiu->output_ring_buffer);
+   MEM1_free(wiiu->color_buffer.surface.image);
+   MEM1_free(wiiu->ubo_vp);
+   MEM1_free(wiiu->ubo_tex);
+   MEM1_free(wiiu->ubo_mvp);
+   MEM1_free(wiiu->input_ring_buffer);
+   MEM1_free(wiiu->output_ring_buffer);
+
+   MEMBucket_free(wiiu->tv_scan_buffer);
+   MEMBucket_free(wiiu->drc_scan_buffer);
 
    free(wiiu);
 }
@@ -1611,7 +1559,7 @@ static bool wiiu_init_frame_textures(wiiu_video_t *wiiu, unsigned width, unsigne
       for (i = 0; i < wiiu->shader_preset->passes; i++)
       {
          if (wiiu->pass[i].mem1)
-            MEM2_free(wiiu->pass[i].texture.surface.image);
+            MEM1_free(wiiu->pass[i].texture.surface.image);
          else
             MEM2_free(wiiu->pass[i].texture.surface.image);
 
@@ -1723,7 +1671,7 @@ static bool wiiu_init_frame_textures(wiiu_video_t *wiiu, unsigned width, unsigne
                || (height != wiiu->vp.height))
          {
             wiiu->pass[i].mem1 = true;
-            wiiu->pass[i].texture.surface.image = MEM2_alloc(wiiu->pass[i].texture.surface.imageSize,
+            wiiu->pass[i].texture.surface.image = MEM1_alloc(wiiu->pass[i].texture.surface.imageSize,
                                                   wiiu->pass[i].texture.surface.alignment);
 
             if (!wiiu->pass[i].texture.surface.image)

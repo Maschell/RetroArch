@@ -104,8 +104,8 @@ static void* ax_audio_init(const char* device, unsigned rate, unsigned latency,
       return NULL;
    }
 
-   ax->buffer_l              = MEM2_alloc(AX_AUDIO_SIZE, 0x100);
-   ax->buffer_r              = MEM2_alloc(AX_AUDIO_SIZE, 0x100);
+   ax->buffer_l              = MEM1_alloc(AX_AUDIO_SIZE, 0x100);
+   ax->buffer_r              = MEM1_alloc(AX_AUDIO_SIZE, 0x100);
    memset(ax->buffer_l,0,AX_AUDIO_SIZE);
    memset(ax->buffer_r,0,AX_AUDIO_SIZE);
    DCFlushRange(ax->buffer_l,AX_AUDIO_SIZE);
@@ -155,8 +155,8 @@ static void ax_audio_free(void* data)
    AXFreeMultiVoice(ax->mvoice);
    AXQuit();
 
-   MEM2_free(ax->buffer_l);
-   MEM2_free(ax->buffer_r);
+   MEM1_free(ax->buffer_l);
+   MEM1_free(ax->buffer_r);
    free(ax);
 }
 

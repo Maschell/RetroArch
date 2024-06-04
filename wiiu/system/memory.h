@@ -22,13 +22,9 @@ extern "C" {
 #endif
 
 #include <malloc.h>
-#include <stdbool.h>
 
-bool memoryInitializeMEM1();
-bool memoryInitializeBucket();
-
-void destroyMEM1Heap();
-void destroyBucketHeap();
+void memoryInitialize(void);
+void memoryRelease(void);
 
 void * MEM2_alloc(unsigned int size, unsigned int align);
 void MEM2_free(void *ptr);
