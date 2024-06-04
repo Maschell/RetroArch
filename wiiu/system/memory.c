@@ -25,75 +25,107 @@
 static MEMHeapHandle mem1_heap;
 static MEMHeapHandle bucket_heap;
 
-void memoryInitialize(void)
-{
-   unsigned int bucket_allocatable_size;
-   MEMHeapHandle bucket_heap_handle;
-   void *bucket_memory                = NULL;
-   MEMHeapHandle mem1_heap_handle     = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
-   unsigned int mem1_allocatable_size = MEMGetAllocatableSizeForFrmHeapEx(mem1_heap_handle, 4);
-   void *mem1_memory                  = MEMAllocFromFrmHeapEx(mem1_heap_handle, mem1_allocatable_size, 4);
+#define GFX_FRAME_HEAP_TAG (0x123DECAF)
 
-   if(mem1_memory)
-      mem1_heap = MEMCreateExpHeapEx(mem1_memory,
-            mem1_allocatable_size, 0);
+bool memoryInitializeMEM1() {
+   MEMHeapHandle heap = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
+   uint32_t size;
+   void *base;
 
-   bucket_heap_handle      = MEMGetBaseHeapHandle(MEM_BASE_HEAP_FG);
-   bucket_allocatable_size = MEMGetAllocatableSizeForFrmHeapEx(bucket_heap_handle, 4);
-   bucket_memory           = MEMAllocFromFrmHeapEx(bucket_heap_handle, bucket_allocatable_size, 4);
+   if (!MEMRecordStateForFrmHeap(heap, GFX_FRAME_HEAP_TAG)) {
+      return false;
+   }
 
-   if(bucket_memory)
-      bucket_heap = MEMCreateExpHeapEx(bucket_memory,
-            bucket_allocatable_size, 0);
+   size = MEMGetAllocatableSizeForFrmHeapEx(heap, 4);
+   if (!size) {
+      return false;
+   }
+
+   base = MEMAllocFromFrmHeapEx(heap, size, 4);
+   if (!base) {
+      return false;
+   }
+
+   mem1_heap = MEMCreateExpHeapEx(base, size, 0);
+   if (!mem1_heap) {
+      return false;
+   }
+   return true;
 }
 
-void memoryRelease(void)
-{
-    if (ProcUIInForeground()) {
-        MEMDestroyExpHeap(mem1_heap);
-        MEMFreeToFrmHeap(MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1), MEM_FRM_HEAP_FREE_ALL);
-        mem1_heap = NULL;
+bool memoryInitializeBucket() {
+   MEMHeapHandle heap = MEMGetBaseHeapHandle(MEM_BASE_HEAP_FG);
+   uint32_t size;
+   void *base;
 
-        MEMDestroyExpHeap(bucket_heap);
-        MEMFreeToFrmHeap(MEMGetBaseHeapHandle(MEM_BASE_HEAP_FG), MEM_FRM_HEAP_FREE_ALL);
-        bucket_heap = NULL;
-    }
+   size = MEMGetAllocatableSizeForFrmHeapEx(heap, 4);
+   if (!size) {
+      return false;
+   }
+
+   base = MEMAllocFromFrmHeapEx(heap, size, 4);
+   if (!base) {
+      return false;
+   }
+
+   bucket_heap = MEMCreateExpHeapEx(base, size, 0);
+   if (!bucket_heap) {
+      return false;
+   }
+   return true;
+}
+
+
+void destroyMEM1Heap() {
+   MEMHeapHandle heap = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
+
+   if (mem1_heap) {
+      MEMDestroyExpHeap(mem1_heap);
+      mem1_heap = NULL;
+   }
+
+   MEMFreeByStateToFrmHeap(heap, GFX_FRAME_HEAP_TAG);
+}
+
+void destroyBucketHeap() {
+   MEMHeapHandle foreground = MEMGetBaseHeapHandle(MEM_BASE_HEAP_FG);
+
+   if (bucket_heap) {
+      MEMDestroyExpHeap(bucket_heap);
+      bucket_heap = NULL;
+   }
+
+   MEMFreeToFrmHeap(foreground, MEM_FRM_HEAP_FREE_ALL);
 }
 
 /* some wrappers */
 
-void * MEM2_alloc(unsigned int size, unsigned int align)
-{
+void *MEM2_alloc(unsigned int size, unsigned int align) {
    return memalign(align, size);
 }
 
-void MEM2_free(void *ptr)
-{
+void MEM2_free(void *ptr) {
    free(ptr);
 }
 
-void * MEM1_alloc(unsigned int size, unsigned int align)
-{
+void *MEM1_alloc(unsigned int size, unsigned int align) {
    if (align < 4)
       align = 4;
    return MEMAllocFromExpHeapEx(mem1_heap, size, align);
 }
 
-void MEM1_free(void *ptr)
-{
+void MEM1_free(void *ptr) {
    if (ptr)
       MEMFreeToExpHeap(mem1_heap, ptr);
 }
 
-void * MEMBucket_alloc(unsigned int size, unsigned int align)
-{
+void *MEMBucket_alloc(unsigned int size, unsigned int align) {
    if (align < 4)
       align = 4;
    return MEMAllocFromExpHeapEx(bucket_heap, size, align);
 }
 
-void MEMBucket_free(void *ptr)
-{
+void MEMBucket_free(void *ptr) {
    if (ptr)
       MEMFreeToExpHeap(bucket_heap, ptr);
 }

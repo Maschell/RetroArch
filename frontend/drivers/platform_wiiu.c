@@ -228,6 +228,25 @@ static int frontend_wiiu_parse_drive_list(void *data, bool load_content)
    return 0;
 }
 
+static bool check_proc() {
+   switch (ProcUIProcessMessages(true)) {
+      case PROCUI_STATUS_EXITING: {
+         return false;
+      }
+      case PROCUI_STATUS_RELEASE_FOREGROUND: {
+         ProcUIDrawDoneRelease();
+         break;
+      }
+      case PROCUI_STATUS_IN_FOREGROUND: {
+         break;
+      }
+      case PROCUI_STATUS_IN_BACKGROUND:
+      default:
+         break;
+   }
+   return true;
+}
+
 static void frontend_wiiu_exec(const char *path, bool should_load_content)
 {
    /* goal: make one big buffer with all the argv's, seperated by NUL. we can
@@ -316,6 +335,13 @@ static void frontend_wiiu_exec(const char *path, bool should_load_content)
    }
 
    in_exec = true;
+
+   if(!should_load_content) {
+      SYSLaunchMenu()   ;
+   }
+   while(check_proc()) {
+
+   }
 
    cleanup:
    free(argv_buf);
@@ -450,8 +476,7 @@ int main(int argc, char **argv)
 
 static void main_setup(void)
 {
-   memoryInitialize();
-   init_os_exceptions();
+   //init_os_exceptions();
    init_logging();
    init_filesystems();
    init_pad_libraries();
@@ -464,35 +489,13 @@ static void main_teardown(void)
    deinit_pad_libraries();
    deinit_filesystems();
    deinit_logging();
-   deinit_os_exceptions();
-   memoryRelease();
+   //deinit_os_exceptions();
 }
 
-// https://github.com/devkitPro/wut/blob/7d9fa9e416bffbcd747f1a8e5701fd6342f9bc3d/libraries/libwhb/src/proc.c
-
-#define HBL_TITLE_ID (0x0005000013374842)
-#define MII_MAKER_JPN_TITLE_ID (0x000500101004A000)
-#define MII_MAKER_USA_TITLE_ID (0x000500101004A100)
-#define MII_MAKER_EUR_TITLE_ID (0x000500101004A200)
-
-static bool in_hbl = false;
 static bool in_aroma = false;
 
 static void proc_setup(void)
 {
-   uint64_t titleID = OSGetTitleID();
-
-   // Homebrew Launcher does not like the standard ProcUI application loop, sad!
-   if (titleID == HBL_TITLE_ID ||
-       titleID == MII_MAKER_JPN_TITLE_ID ||
-       titleID == MII_MAKER_USA_TITLE_ID ||
-       titleID == MII_MAKER_EUR_TITLE_ID)
-   {
-      // Important: OSEnableHomeButtonMenu must come before ProcUIInitEx.
-      OSEnableHomeButtonMenu(FALSE);
-      in_hbl = TRUE;
-   }
-
    /* Detect Aroma explicitly (it's possible to run under H&S while using Tiramisu) */
    OSDynLoad_Module rpxModule;
    if (OSDynLoad_Acquire("homebrew_rpx_loader", &rpxModule) == OS_DYNLOAD_OK)
@@ -506,29 +509,6 @@ static void proc_setup(void)
 
 static void proc_exit(void)
 {
-   /* If we're doing a normal exit while running under HBL, we must SYSRelaunchTitle.
-    * If we're in an exec (i.e. launching mocha homebrew wrapper) we must *not* do that. yay! */
-   if (in_hbl && !in_exec)
-      SYSRelaunchTitle(0, NULL);
-
-   /* Similar deal for Aroma, but exit to menu. */
-   if (!in_hbl && !in_exec)
-      SYSLaunchMenu();
-
-   /* Now just tell the OS that we really are ok to exit */
-   if (!ProcUIInShutdown())
-   {
-      for (;;)
-      {
-         ProcUIStatus status;
-         status = ProcUIProcessMessages(TRUE);
-         if (status == PROCUI_STATUS_EXITING)
-            break;
-         else if (status == PROCUI_STATUS_RELEASE_FOREGROUND)
-            ProcUIDrawDoneRelease();
-      }
-   }
-
    ProcUIShutdown();
 }
 
@@ -600,7 +580,10 @@ static void main_loop(void)
    OSTime start_time;
    int status;
 
-   for (;;)
+   bool home_menu_allowed = true;
+   OSEnableHomeButtonMenu(TRUE);
+
+   while(check_proc())
    {
       if (video_driver_get_ptr())
       {
@@ -612,8 +595,22 @@ static void main_loop(void)
 
       status = runloop_iterate();
 
-      if (status == -1)
+      // TODO: make this less ugly...
+      if((runloop_get_flags() & RUNLOOP_FLAG_CORE_RUNNING)) {
+         if(home_menu_allowed) {
+            OSEnableHomeButtonMenu(FALSE);
+            home_menu_allowed = false;
+         }
+      } else{
+         if(!home_menu_allowed) {
+            OSEnableHomeButtonMenu(TRUE);
+            home_menu_allowed = true;
+         }
+      }
+
+      if (status == -1) {
          break;
+      }
    }
 }
 #endif
