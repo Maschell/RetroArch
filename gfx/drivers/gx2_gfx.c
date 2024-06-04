@@ -1494,7 +1494,7 @@ static void gx2_free(void *data)
    if (!wiiu)
       return;
 
-   if(ProcUIInForeground()) {
+   if (ProcUIInForeground()) {
       /* clear leftover image */
       GX2ClearColor(&wiiu->color_buffer, 0.0f, 0.0f, 0.0f, 1.0f);
       GX2CopyColorBufferToScanBuffer(&wiiu->color_buffer, GX2_SCAN_TARGET_DRC);

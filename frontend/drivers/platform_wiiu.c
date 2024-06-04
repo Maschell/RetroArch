@@ -338,10 +338,10 @@ static void frontend_wiiu_exec(const char *path, bool should_load_content)
 
    in_exec = true;
 
-   if(!should_load_content) {
-      SYSLaunchMenu()   ;
+   if (!should_load_content) {
+      SYSLaunchMenu();
    }
-   while(check_proc()) {
+   while (check_proc()) {
 
    }
 
@@ -514,13 +514,13 @@ static void proc_setup(void)
 
    uint32_t addr = 0;
    uint32_t size = 0;
-   if(OSGetMemBound(OS_MEM1, &addr, &size) == 0) {
+   if (OSGetMemBound(OS_MEM1, &addr, &size) == 0) {
       procui_mem1Storage = malloc(size);
       if (procui_mem1Storage) {
          ProcUISetMEM1Storage(procui_mem1Storage, size);
       }
    }
-   if(OSGetForegroundBucketFreeArea(&addr, &size)) {
+   if (OSGetForegroundBucketFreeArea(&addr, &size)) {
       procui_bucketStorage = malloc(size);
       if (procui_bucketStorage) {
          ProcUISetBucketStorage(procui_bucketStorage, size);
@@ -612,7 +612,7 @@ static void main_loop(void)
    bool home_menu_allowed = true;
    OSEnableHomeButtonMenu(TRUE);
 
-   while(check_proc())
+   while (check_proc())
    {
       if (video_driver_get_ptr())
       {
@@ -625,13 +625,13 @@ static void main_loop(void)
       status = runloop_iterate();
 
       // TODO: make this less ugly...
-      if((runloop_get_flags() & RUNLOOP_FLAG_CORE_RUNNING)) {
-         if(home_menu_allowed) {
+      if ((runloop_get_flags() & RUNLOOP_FLAG_CORE_RUNNING)) {
+         if (home_menu_allowed) {
             OSEnableHomeButtonMenu(FALSE);
             home_menu_allowed = false;
          }
-      } else{
-         if(!home_menu_allowed) {
+      } else {
+         if (!home_menu_allowed) {
             OSEnableHomeButtonMenu(TRUE);
             home_menu_allowed = true;
          }
