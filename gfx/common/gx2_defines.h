@@ -109,9 +109,7 @@ typedef struct
    } vertex_cache_tex;
 
    void *drc_scan_buffer;
-   uint32_t drc_scan_buffer_size;
    void *tv_scan_buffer;
-   uint32_t tv_scan_buffer_size;
    void *cmd_buffer;
    GX2ColorBuffer color_buffer;
    GX2ContextState *ctx_state;
@@ -138,7 +136,6 @@ typedef struct
    bool keep_aspect;
    bool should_resize;
    bool render_msg_enabled;
-   bool has_foreground;
 } wiiu_video_t;
 
 #endif

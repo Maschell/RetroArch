@@ -516,13 +516,13 @@ static void proc_setup(void)
    uint32_t size = 0;
    if(OSGetMemBound(OS_MEM1, &addr, &size) == 0) {
       procui_mem1Storage = malloc(size);
-      if(procui_mem1Storage) {
+      if (procui_mem1Storage) {
          ProcUISetMEM1Storage(procui_mem1Storage, size);
       }
    }
    if(OSGetForegroundBucketFreeArea(&addr, &size)) {
       procui_bucketStorage = malloc(size);
-      if(procui_bucketStorage) {
+      if (procui_bucketStorage) {
          ProcUISetBucketStorage(procui_bucketStorage, size);
       }
    }
@@ -530,11 +530,13 @@ static void proc_setup(void)
 
 static void proc_exit(void)
 {
-   if(procui_mem1Storage) {
+   if (procui_mem1Storage) {
       free(procui_mem1Storage);
+      procui_mem1Storage = NULL;
    }
-   if(procui_bucketStorage) {
+   if (procui_bucketStorage) {
       free(procui_bucketStorage);
+      procui_bucketStorage = NULL;
    }
    ProcUIShutdown();
 }
