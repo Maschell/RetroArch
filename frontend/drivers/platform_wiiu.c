@@ -33,9 +33,11 @@
 #include <coreinit/dynload.h>
 #include <coreinit/ios.h>
 #include <coreinit/foreground.h>
+#include <coreinit/memory.h>
 #include <coreinit/time.h>
 #include <coreinit/title.h>
 #include <proc_ui/procui.h>
+#include <proc_ui/memory.h>
 #include <padscore/wpad.h>
 #include <padscore/kpad.h>
 #include <sysapp/launch.h>
@@ -493,6 +495,8 @@ static void main_teardown(void)
 }
 
 static bool in_aroma = false;
+static void* procui_mem1Storage = NULL;
+static void* procui_bucketStorage = NULL;
 
 static void proc_setup(void)
 {
@@ -505,10 +509,31 @@ static void proc_setup(void)
    }
 
    ProcUIInit(&proc_save_callback);
+
+   uint32_t addr = 0;
+   uint32_t size = 0;
+   if(OSGetMemBound(OS_MEM1, &addr, &size) == 0) {
+      procui_mem1Storage = malloc(size);
+      if(procui_mem1Storage) {
+         ProcUISetMEM1Storage(procui_mem1Storage, size);
+      }
+   }
+   if(OSGetForegroundBucketFreeArea(&addr, &size)) {
+      procui_bucketStorage = malloc(size);
+      if(procui_bucketStorage) {
+         ProcUISetBucketStorage(procui_bucketStorage, size);
+      }
+   }
 }
 
 static void proc_exit(void)
 {
+   if(procui_mem1Storage) {
+      free(procui_mem1Storage);
+   }
+   if(procui_bucketStorage) {
+      free(procui_bucketStorage);
+   }
    ProcUIShutdown();
 }
 
