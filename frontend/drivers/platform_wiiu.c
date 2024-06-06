@@ -620,7 +620,6 @@ static void main_loop(void)
    OSTime start_time;
    int status;
 
-   bool home_menu_allowed = true;
    OSEnableHomeButtonMenu(TRUE);
 
    while (check_proc())
@@ -634,20 +633,6 @@ static void main_loop(void)
          task_queue_wait(NULL, NULL);
 
       status = runloop_iterate();
-
-      // TODO: make this less ugly...
-      if ((runloop_get_flags() & RUNLOOP_FLAG_CORE_RUNNING)) {
-         if (home_menu_allowed) {
-            OSEnableHomeButtonMenu(FALSE);
-            home_menu_allowed = false;
-         }
-      } else {
-         if (!home_menu_allowed) {
-            OSEnableHomeButtonMenu(TRUE);
-            home_menu_allowed = true;
-         }
-      }
-
       if (status == -1) {
          break;
       }
