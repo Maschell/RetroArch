@@ -70,6 +70,7 @@
 #include <mocha/mocha.h>
 #ifdef HAVE_LIBFAT
 #include <fat.h>
+#include <gx2/display.h>
 #endif
 #endif
 
@@ -246,12 +247,17 @@ static int frontend_wiiu_parse_drive_list(void *data, bool load_content)
    return 0;
 }
 
-static bool check_proc() {
+static bool check_proc(bool content_running) {
    switch (ProcUIProcessMessages(true)) {
       case PROCUI_STATUS_EXITING: {
          return false;
       }
       case PROCUI_STATUS_RELEASE_FOREGROUND: {
+         if (content_running) {
+            GX2SetTVEnable(FALSE);
+            GX2SetDRCEnable(FALSE);
+            command_event(CMD_EVENT_MENU_TOGGLE, NULL);
+         }
          ProcUIDrawDoneRelease();
          break;
       }
@@ -367,7 +373,7 @@ static void frontend_wiiu_exitspawn(char *s, size_t len, char *args)
       return;
    }
    frontend_wiiu_exec(s, false);
-   while (check_proc());
+   while (check_proc(false));
 }
 #else /* ifndef IS_SALAMANDER */
 static void frontend_wiiu_exitspawn(char *s, size_t len, char *args)
@@ -384,7 +390,7 @@ static void frontend_wiiu_exitspawn(char *s, size_t len, char *args)
       frontend_wiiu_exec(s, wiiu_fork_mode == FRONTEND_FORK_CORE_WITH_ARGS);
    }
 
-   while (check_proc());
+   while (check_proc(false));
 }
 #endif /* IS_SALAMANDER */
 
@@ -630,16 +636,16 @@ static void main_loop(void)
 
    OSEnableHomeButtonMenu(TRUE);
 
-   while (check_proc())
-   {
-      if (video_driver_get_ptr())
-      {
+   bool content_running = false;
+   while (check_proc(content_running)) {
+      if (video_driver_get_ptr()) {
          start_time = OSGetSystemTime();
          task_queue_wait(swap_is_pending, &start_time);
       }
       else
          task_queue_wait(NULL, NULL);
 
+      content_running = (runloop_get_flags() & RUNLOOP_FLAG_CORE_RUNNING) && !(menu_state_get_ptr()->flags & MENU_ST_FLAG_ALIVE);
       status = runloop_iterate();
       if (status == -1) {
          break;
