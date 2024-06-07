@@ -362,12 +362,20 @@ static void frontend_wiiu_exec(const char *path, bool should_load_content)
 #ifdef IS_SALAMANDER
 static void frontend_wiiu_exitspawn(char *s, size_t len, char *args)
 {
+    if(!ProcUIInForeground()) {
+      // We are already returning
+      return;
+   }
    frontend_wiiu_exec(s, false);
    while (check_proc());
 }
 #else /* ifndef IS_SALAMANDER */
 static void frontend_wiiu_exitspawn(char *s, size_t len, char *args)
 {
+   if(!ProcUIInForeground()) {
+      // We are already returning
+      return;
+   }
    if (wiiu_fork_mode == FRONTEND_FORK_NONE) {
       /* Exit to menu */
       SYSLaunchMenu();
